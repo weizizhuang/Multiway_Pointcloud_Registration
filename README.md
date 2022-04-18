@@ -1,4 +1,4 @@
-Urban Point Cloud Data Registration
+Multiway Pointcloud Registration
 ===============
 
 # Settings
