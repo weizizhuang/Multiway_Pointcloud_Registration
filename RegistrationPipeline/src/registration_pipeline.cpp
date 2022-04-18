@@ -177,6 +177,8 @@ void RegPipeline::PointCloudRegistrationUsingScaleFGR(const std::string& config_
 	DataIO::read_ply(pointcloud_filenames[0], v_1, vc_1, vn_1);
 	DataIO::read_ply(pointcloud_filenames[1], v_2, vc_2, vn_2);
 
+	//DataIO::write_ply(feature_type + "_wzz_0.ply", v_1, vc_1, vn_1);
+
 	Eigen::MatrixXd aligned_v2;
 	Eigen::MatrixXd aligned_vn_2;
 
@@ -193,6 +195,8 @@ void RegPipeline::PointCloudRegistrationUsingScaleFGR(const std::string& config_
 
 	v_1 = v.topRows(v_1.rows());
 	v_2 = v.bottomRows(v_2.rows());
+
+	//DataIO::write_ply(feature_type + "_wzz_0.ply", v_1, vc_1, vn_1);
 
 	Eigen::MatrixXd downsampled_v1 = v_1, downsampled_v2 = v_2;
 	Eigen::MatrixXd downsampled_vn1 = vn_1, downsampled_vn2 = vn_2;
@@ -265,10 +269,13 @@ void RegPipeline::PointCloudRegistrationUsingScaleFGR(const std::string& config_
 		int num_2 = feature_2_mask.count();
 		std::cout << "NaN vertices in point cloud 2: " << feature_2.rows() - num_2 << std::endl;
 
+		//DataIO::write_ply(feature_type + "_wzz_0.ply", v_1, vc_1, vn_1);
+
 		Eigen::MatrixXd filtered_features(num_1 + num_2, feature_1.cols());
 
 		filtered_features.topRows(num_1) = igl::slice_mask(feature_1, feature_1_mask, 1);
 		filtered_features.bottomRows(num_2) = igl::slice_mask(feature_2, feature_2_mask, 1);
+
 		if (pca_component_num > 0)
 		{
 			std::cout << "start pca computation" << std::endl;
@@ -358,9 +365,24 @@ void RegPipeline::PointCloudRegistrationUsingScaleFGR(const std::string& config_
 	std::cout << trans_mat << std::endl;
 	std::cout << s << std::endl;
 
+	
+	//DataIO::write_ply(feature_type + "_wzz_1.ply", v_1, vc_1, vn_1);
+	//igl::writeDMAT("normalization_trans_mat.dmat", normalization_trans_mat);
+	//
+	v_1 = (v_1.rowwise().homogeneous()*normalization_trans_mat.inverse().transpose()).eval().leftCols(3);
+	vn_1 = vn_1 * normalization_trans_mat.block<3, 3>(0, 0).inverse().transpose();
+	aligned_v2 = (v_2.rowwise().homogeneous() * trans_mat.transpose()*normalization_trans_mat.inverse().transpose()).eval().leftCols(3);
+	aligned_vn_2 =  vn_2 * trans_mat.block<3, 3>(0, 0).transpose()*normalization_trans_mat.block<3, 3>(0, 0).inverse().transpose();
+
+
+	DataIO::write_ply(pointcloud_filenames[0] + "_aligned.ply", v_1, vc_1, vn_1);
+	DataIO::write_ply(feature_type + "_fgr_2.ply", v_2, vc_2, vn_2);
+	DataIO::write_ply(pointcloud_filenames[1] + "_aligned.ply", aligned_v2, vc_2, aligned_vn_2);
+
+	int wzz;
+	std::cin >> wzz;
+
 	begin = clock();
-	aligned_v2 = (v_2.rowwise().homogeneous() * trans_mat.transpose()).eval().leftCols(3);
-	aligned_vn_2 = vn_2 * trans_mat.block<3, 3>(0, 0).transpose();
 
 	Eigen::Matrix4d ssicp_trans = SSICP::GetOptimalTrans(aligned_v2, v_1, 1e-2, 1e-3);
 
@@ -374,6 +396,9 @@ void RegPipeline::PointCloudRegistrationUsingScaleFGR(const std::string& config_
 	std::cout << "scaling factor: " << s << std::endl;
 
 	igl::writeDMAT("affine_matrix.dmat", affine_matrix);
+
+	std::cin >> wzz;
+	//DataIO::write_ply(feature_type + "_wzz_2.ply", v_1, vc_1, vn_1);
 
 	Eigen::MatrixXd corres_v_1, corres_vn_1, corres_v_2, corres_vn_2, corres_v_aligned;
 	corres_v_1 = igl::slice(downsampled_v1, corres_mat.col(0), 1);
@@ -398,6 +423,396 @@ void RegPipeline::PointCloudRegistrationUsingScaleFGR(const std::string& config_
 	return;
 }
 
+
+
+
+void RegPipeline::PointCloudRegistrationUsingScaleMultiway(const std::string& config_filename)
+{
+	std::string feature_type;
+	std::vector<std::string> pointcloud_filenames;
+	std::vector<std::string> feature_filenames;
+	std::string correspondences_filename;
+	std::string output_folder;
+	int downsampling_num;
+	int pca_component_num;
+	double data_scaling_factor;
+
+	DataIO::read_fgr_config(config_filename, pointcloud_filenames, feature_type, feature_filenames, correspondences_filename, downsampling_num, pca_component_num, data_scaling_factor, output_folder);
+
+	
+	std::vector<Eigen::MatrixXd> v_all, vc_all, vn_all;
+
+	int num = pointcloud_filenames.size();
+
+	for (int i = 0; i < num; i++)
+	{
+		Eigen::MatrixXd v_1, vc_1, vn_1;
+		DataIO::read_ply(pointcloud_filenames[i], v_1, vc_1, vn_1);
+		v_all.push_back(v_1);
+		vc_all.push_back(vc_1);
+		vn_all.push_back(vn_1);
+
+	}
+
+
+	//DataIO::write_ply(feature_type + "_wzz_0.ply", v_1, vc_1, vn_1);
+
+	Eigen::MatrixXd aligned_v2;
+	Eigen::MatrixXd aligned_vn_2;
+
+	Eigen::MatrixXd affine_matrix(4, 4);
+
+	clock_t begin = clock();
+
+
+	/*Eigen::MatrixXd v(v_1.rows() + v_2.rows(), 3);
+	v.topRows(v_1.rows()) = v_1;
+	v.bottomRows(v_2.rows()) = v_2;
+	Eigen::Vector3d min_corner = Eigen::Vector3d(-1, -1, -1);
+	Eigen::Vector3d max_corner = Eigen::Vector3d(1, 1, 1);
+	Eigen::Matrix4d normalization_trans_mat = BaseAlg::normalize(min_corner, max_corner, v);
+
+	v_1 = v.topRows(v_1.rows());
+	v_2 = v.bottomRows(v_2.rows());*/
+
+	//DataIO::write_ply(feature_type + "_wzz_0.ply", v_1, vc_1, vn_1);
+
+	//Eigen::MatrixXd downsampled_v1 = v_1, downsampled_v2 = v_2;
+	//Eigen::MatrixXd downsampled_vn1 = vn_1, downsampled_vn2 = vn_2;
+
+	std::vector<Eigen::MatrixXd> downsampled_v_all, downsampled_vc_all, downsampled_vn_all;
+
+	bool need_downsampling = false;
+
+	std::vector<Eigen::VectorXi> downsampled_ids_all;
+
+	need_downsampling = true;
+
+	if (need_downsampling)
+	{
+		for (int i = 0; i < num; i++)
+		{
+			downsampled_ids_all.push_back(BaseAlg::downsampling(v_all[i].rows(), downsampling_num));
+		}
+	}
+
+	if (need_downsampling)
+	{
+		for (int i = 0; i < num; i++)
+		{
+			downsampled_v_all.push_back(igl::slice(v_all[i], downsampled_ids_all[i], 1));
+			downsampled_vn_all.push_back(igl::slice(vn_all[i], downsampled_ids_all[i], 1));
+			downsampled_vc_all.push_back(igl::slice(vc_all[i], downsampled_ids_all[i], 1));
+		}
+		//downsampled_v1.conservativeResize(downsampling_num, 3);
+		//downsampled_v2.conservativeResize(downsampling_num, 3);
+		//downsampled_vn1.conservativeResize(downsampling_num, 3);
+		//downsampled_vn2.conservativeResize(downsampling_num, 3);
+	}
+
+
+
+
+	//int t;
+	//std::cin >> t;
+
+	std::vector<Eigen::MatrixXd> feature_all;
+
+	Eigen::MatrixXi corres_mat_all[20][20];
+	std::vector<std::pair<int, int> > corres_all[20][20];
+	int corres_num[20][20];
+
+	if (correspondences_filename == "")
+	{
+		if (feature_filenames[0] == "" || feature_filenames[1] == "")
+		{
+			if (feature_type == "fpfh" || feature_type == "FPFH")
+			{
+
+			}
+			else if (feature_type == "shot" || feature_type == "SHOT")
+			{
+				std::cout << "compute shot..." << std::endl;
+				for (int i = 0; i < num; i++)
+				{
+					Eigen::MatrixXd feature_1;
+					FeatureAlg::compute_shot(downsampled_v_all[i], v_all[i], vn_all[i], downsampled_vc_all[i], vc_all[i], feature_1);
+					feature_all.push_back(feature_1);
+				}
+			}
+			//igl::writeDMAT(feature_type + "_1.dmat", feature_1, false);
+			//igl::writeDMAT(feature_type + "_2.dmat", feature_2, false);
+		}
+		else
+		{
+
+		}
+
+
+		std::vector<Eigen::Array<bool, Eigen::Dynamic, 1>> feature_mask_all;
+
+
+		for (int i = 0; i < num; i++)
+		{
+			Eigen::Array<bool, Eigen::Dynamic, 1> feature_1_mask;
+
+			feature_1_mask = feature_all[i].col(0).array().isNaN() == false;
+
+			int num_1 = feature_1_mask.count();
+			std::cout << "NaN vertices in point cloud " << i << " " << feature_all[i].rows() - num_1 << std::endl;
+
+			feature_mask_all.push_back(feature_1_mask);
+			feature_all[i] = igl::slice_mask(feature_all[i], feature_mask_all[i], 1);
+
+
+			downsampled_v_all[i] = igl::slice_mask(downsampled_v_all[i], feature_mask_all[i], 1);
+			downsampled_vn_all[i] = igl::slice_mask(downsampled_vn_all[i], feature_mask_all[i], 1);
+			downsampled_vc_all[i] = igl::slice_mask(downsampled_vc_all[i], feature_mask_all[i], 1);
+
+		}
+
+		//DataIO::write_ply(feature_type + "_wzz_0.ply", v_1, vc_1, vn_1);
+
+
+
+
+
+
+
+
+		for (int i = 0; i < num; i++)
+		{
+			for (int j = i+1; j < num; j++)
+			{
+
+				std::cout << "begin" << std::endl;
+				
+				Eigen::MatrixXd filtered_features(feature_all[i].rows() + feature_all[j].rows(), feature_all[i].cols());
+				Eigen::MatrixXd feature1, feature2;
+
+				filtered_features.topRows(feature_all[i].rows()) = feature_all[i];
+				filtered_features.bottomRows(feature_all[j].rows()) = feature_all[j];
+
+				if (pca_component_num > 0)
+				{
+					std::cout << "start pca computation" << std::endl;
+
+					Eigen::VectorXd eigenvalues;
+					Eigen::MatrixXd eigenvectors;
+
+					BaseAlg::pca(filtered_features, pca_component_num, eigenvalues, eigenvectors);
+
+					Eigen::MatrixXd feature_pca = filtered_features * eigenvectors;
+
+					std::cout << "end pca computation" << std::endl;
+
+					feature1 = feature_pca.topRows(feature_all[i].rows());
+					feature2 = feature_pca.bottomRows(feature_all[j].rows());
+				}
+
+
+				std::vector<std::pair<int, int> > corres;
+				int count;
+
+				FastGlobalRegistration::advanced_matching(downsampled_v_all[i], downsampled_v_all[j], feature1, feature2, corres);
+
+
+				corres_num[i][j] = corres.size();
+				corres_all[i][j] = corres;
+
+				corres_num[j][i] = corres.size();
+				corres_all[j][i] = corres;
+
+				for (int t = 0; t < corres.size(); t++)
+				{
+					corres_all[j][i][t].first = corres[t].second;
+					corres_all[j][i][t].second = corres[t].first;
+				}
+
+				std::cout << "finish" << std::endl;
+			}
+		}
+
+		for (int i = 0; i < num; i++)
+		{
+			for (int j = 0; j < num; j++)
+			{
+				std::cout << corres_num[i][j] << ' ';
+			}
+
+			std::cout << std::endl;
+		}
+
+		//An O(n) method to shift back to the original vertex indices before filering NaN elements
+
+
+
+
+		////visualize the feature correspondences
+		//Eigen::MatrixXd feature_vcolor;
+		//Eigen::MatrixXd feature_v1 = igl::slice(downsampled_v1, corres_mat.col(0), 1);
+		//Eigen::MatrixXd feature_v2 = igl::slice(downsampled_v2, corres_mat.col(1), 1);
+		//igl::colormap(igl::COLOR_MAP_TYPE_PARULA, feature_v1, true, feature_vcolor);
+		//feature_vcolor *= 255;
+		//DataIO::write_ply(feature_type + "_feature_1.ply", corres_v_1, vcolor, corres_vn_1);
+	} 
+	
+
+
+	std::cout << (clock() - begin) / (double)CLOCKS_PER_SEC << "s" << std::endl;
+
+	begin = clock();
+
+	int visited[20], dist[20], cnt=1;
+	std::vector<int> now;
+	for (int i = 0; i < 20; i++)
+	{
+		visited[i] = 0;
+	}
+	visited[0] = 1;
+	now.push_back(0);
+	for (int i = 1; i < num; i++)
+	{
+		dist[i] = corres_num[0][i];
+	}
+
+	DataIO::write_ply(pointcloud_filenames[0] + "_aligned.ply", v_all[0], vc_all[0], vn_all[0]);
+
+	std::cout << "process " << 0 << " finished" << std::endl;
+
+	while (cnt < num)
+	{
+		int max = -1;
+		int maxi = -1;
+		for (int i = 0; i < num; i++)
+		{
+			if (visited[i] != 1)
+			{
+				if (dist[i] > max)
+				{
+					max = dist[i];
+					maxi = i;
+				}
+			}
+		}
+
+		
+		for (int i = 0; i < now.size(); i++)
+		{
+			if (corres_num[now[i]][maxi] == max)
+			{
+
+				std::cout << "process " << now[i] <<" " << maxi  << std::endl;
+
+				Eigen::Matrix4d trans_mat;
+				FastGlobalRegistration::optimize_pairwise(true, 128, downsampled_v_all[now[i]], downsampled_v_all[maxi], corres_all[now[i]][maxi], trans_mat);
+				downsampled_v_all[maxi] = (downsampled_v_all[maxi].rowwise().homogeneous()* trans_mat.transpose()).eval().leftCols(3);
+				v_all[maxi] = (v_all[maxi].rowwise().homogeneous()* trans_mat.transpose()).eval().leftCols(3);
+				vn_all[maxi] = vn_all[maxi] * trans_mat.block<3, 3>(0, 0).transpose();
+
+				//Eigen::Matrix4d ssicp_trans = SSICP::GetOptimalTrans(downsampled_v_all[maxi], downsampled_v_all[now[i]], 1e-2, 1e-3);
+				//downsampled_v_all[maxi] = (downsampled_v_all[maxi].rowwise().homogeneous()* ssicp_trans.transpose()).eval().leftCols(3);
+				//v_all[maxi] = (v_all[maxi].rowwise().homogeneous()* ssicp_trans.transpose()).eval().leftCols(3);
+				//vn_all[maxi] = vn_all[maxi] * ssicp_trans.block<3, 3>(0, 0).transpose();
+
+				break;
+			}
+		}
+
+		visited[maxi] = 1;
+		now.push_back(maxi);
+
+
+		DataIO::write_ply(pointcloud_filenames[maxi] + "_aligned.ply", v_all[maxi], vc_all[maxi], vn_all[maxi]);
+
+		
+
+		for (int i = 0; i < num; i++)
+		{
+			if (visited[i] != 1)
+			{
+				if (dist[i] < corres_num[maxi][i])
+				{
+					dist[i] = corres_num[maxi][i];
+				}
+			}
+		}
+
+
+		cnt++;
+	}
+
+
+	int wzz;
+	std::cin >> wzz;
+	/*
+	
+	std::cout << "FGR: " << (clock() - begin) / (double)CLOCKS_PER_SEC << "s" << std::endl;
+
+	double s = std::pow(trans_mat.determinant(), 1.0 / 3);
+	std::cout << trans_mat << std::endl;
+	std::cout << s << std::endl;
+
+
+	//DataIO::write_ply(feature_type + "_wzz_1.ply", v_1, vc_1, vn_1);
+	//igl::writeDMAT("normalization_trans_mat.dmat", normalization_trans_mat);
+	//
+	v_1 = (v_1.rowwise().homogeneous()*normalization_trans_mat.inverse().transpose()).eval().leftCols(3);
+	vn_1 = vn_1 * normalization_trans_mat.block<3, 3>(0, 0).inverse().transpose();
+	aligned_v2 = (v_2.rowwise().homogeneous() * trans_mat.transpose()*normalization_trans_mat.inverse().transpose()).eval().leftCols(3);
+	aligned_vn_2 = vn_2 * trans_mat.block<3, 3>(0, 0).transpose()*normalization_trans_mat.block<3, 3>(0, 0).inverse().transpose();
+
+
+	DataIO::write_ply(pointcloud_filenames[0] + "_aligned.ply", v_1, vc_1, vn_1);
+	DataIO::write_ply(feature_type + "_fgr_2.ply", v_2, vc_2, vn_2);
+	DataIO::write_ply(pointcloud_filenames[1] + "_aligned.ply", aligned_v2, vc_2, aligned_vn_2);
+
+
+	/*
+	int wzz;
+	std::cin >> wzz;
+
+	begin = clock();
+
+	Eigen::Matrix4d ssicp_trans = SSICP::GetOptimalTrans(aligned_v2, v_1, 1e-2, 1e-3);
+
+	std::cout << "SSICP: " << (clock() - begin) / (double)CLOCKS_PER_SEC << "s" << std::endl;
+	aligned_v2 = (aligned_v2.rowwise().homogeneous() * ssicp_trans.transpose()).eval().leftCols(3);
+
+	affine_matrix = normalization_trans_mat.inverse().eval() * ssicp_trans * trans_mat * normalization_trans_mat.eval();
+
+	std::cout << affine_matrix << std::endl;
+	s = std::pow(affine_matrix.determinant(), 1.0 / 3);
+	std::cout << "scaling factor: " << s << std::endl;
+
+	igl::writeDMAT("affine_matrix.dmat", affine_matrix);
+
+	std::cin >> wzz;
+	//DataIO::write_ply(feature_type + "_wzz_2.ply", v_1, vc_1, vn_1);
+
+	Eigen::MatrixXd corres_v_1, corres_vn_1, corres_v_2, corres_vn_2, corres_v_aligned;
+	corres_v_1 = igl::slice(downsampled_v1, corres_mat.col(0), 1);
+	corres_vn_1 = igl::slice(downsampled_vn1, corres_mat.col(0), 1);
+	corres_v_2 = igl::slice(downsampled_v2, corres_mat.col(1), 1);
+	corres_vn_2 = igl::slice(downsampled_vn2, corres_mat.col(1), 1);
+	corres_v_aligned = igl::slice(aligned_v2, corres_mat.col(1), 1);
+
+	//visualize the feature correspondences
+	Eigen::MatrixXd vcolor;
+	igl::jet(corres_v_1.col(0), true, vcolor);
+	vcolor *= 255;
+
+	DataIO::write_ply(feature_type + "_feature_1.ply", corres_v_1, vcolor, corres_vn_1);
+	DataIO::write_ply(feature_type + "_feature_2.ply", corres_v_2, vcolor, corres_vn_2);
+	DataIO::write_ply(feature_type + "_feature_2_aligned.ply", corres_v_aligned, vcolor, corres_vn_2);
+
+	DataIO::write_ply(feature_type + "_fgr_1.ply", v_1, vc_1, vn_1);
+	DataIO::write_ply(feature_type + "_fgr_2.ply", v_2, vc_2, vn_2);
+	DataIO::write_ply(feature_type + "_fgr_2_aligned.ply", aligned_v2, vc_2, aligned_vn_2);
+	*/
+	return;
+}
+
 void RegPipeline::MultiwayPointCloudRegistrationUsingScaleFGR(const std::string& config_filename)
 {
 	std::string feature_type;
@@ -408,6 +823,8 @@ void RegPipeline::MultiwayPointCloudRegistrationUsingScaleFGR(const std::string&
 	int downsampling_num;
 	int pca_component_num;
 	double data_scaling_factor;
+
+
 
 	DataIO::read_fgr_config(config_filename, pointcloud_filenames, feature_type, feature_filenames, correspondences_filename, downsampling_num, pca_component_num, data_scaling_factor, output_folder);
 	std::cout << output_folder << std::endl;

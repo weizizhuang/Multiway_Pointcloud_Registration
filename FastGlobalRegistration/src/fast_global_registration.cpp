@@ -1,20 +1,25 @@
 #include "fast_global_registration.h"
 #include <flann/flann.hpp>
-
+#include <iostream>
+using namespace std;
 #include "./ScaleStretchICP/include/ssicp.h"
 #include <pcl/sample_consensus/sac_model_registration.h>
 #include <igl/slice.h>
 #include <pcl/sample_consensus/ransac.h>
 #include <igl/writeDMAT.h>
 #include <random>
+#include<fstream>
 
 #define DIV_FACTOR			1.4		// Division factor used for graduated non-convexity
 #define USE_ABSOLUTE_SCALE	0		// Measure distance in absolute scale (1) or in scale relative to the diameter of the model (0)
 #define MAX_CORR_DIST		0.0001	// Maximum correspondence distance (also see comment of USE_ABSOLUTE_SCALE)
 #define TUPLE_SCALE			0.95	// Similarity measure used for tuples of feature points.
-#define TUPLE_MAX_CNT		6000	// Maximum tuple numbers.
+#define TUPLE_MAX_CNT		10000	// Maximum tuple numbers.
 #define SHOW_DEBUG_INFO
 #define TUPLE_SIMILAR_CRITERIA
+
+double global_all_scale=1.0;
+int global_iter = -1;
 //#define STD_FILTER
 //#define USE_RANSAC
 
@@ -215,11 +220,12 @@ void FastGlobalRegistration::advanced_matching(const Eigen::MatrixXd& v_1, const
 		int idj0, idj1, idj2;
 		float scale = TUPLE_SCALE;
 		int ncorr = corres.size();
-		int number_of_trial = ncorr * 100;
+		int number_of_trial = ncorr * 1000;
 		std::vector<std::pair<int, int>> corres_tuple;
 		std::vector<double> ratios;
 		ratios.reserve(TUPLE_MAX_CNT);
 		int cnt = 0;
+		double all_scale = 0;
 		int i;
 		for (i = 0; i < number_of_trial; i++)
 		{
@@ -271,12 +277,14 @@ void FastGlobalRegistration::advanced_matching(const Eigen::MatrixXd& v_1, const
 			float k2 = li2 / lj2;
 			if ((k0 * k0 / (k1 * k2) > scale) && (k1 * k2 / (k0 * k0) > scale) &&
 				(k1 * k1 / (k0 * k2) > scale) && (k0 * k2 / (k1 * k1) > scale) &&
-				(k2 * k2 / (k1 * k0) > scale) && (k1 * k0 / (k2 * k2) > scale))
+				(k2 * k2 / (k1 * k0) > scale) && (k1 * k0 / (k2 * k2) > scale) /*&& (k0>1/3) && (k0<3)*/)
 			{
 				corres_tuple.emplace_back(idi0, idj0);
 				corres_tuple.emplace_back(idi1, idj1);
 				corres_tuple.emplace_back(idi2, idj2);
 				ratios.emplace_back(std::log(std::pow(k0 * k1 * k2, 1.0 / 3)));
+				printf("Coarse scale: %f\n", k0);
+				all_scale += k0;
 				cnt++;
 			}
 #endif
@@ -284,7 +292,11 @@ void FastGlobalRegistration::advanced_matching(const Eigen::MatrixXd& v_1, const
 				break;
 		}
 
+		printf("all scale: %f\n", all_scale/cnt);
+		global_all_scale = all_scale / cnt;
+
 		printf("%d tuples (%d trial, %d actual).\n", cnt, number_of_trial, i);
+
 		corres.clear();
 #ifdef STD_FILTER
 		//Eigen::Map<Eigen::VectorXd> ratio_vec(&ratios[0], ratios.size());
@@ -471,6 +483,9 @@ double FastGlobalRegistration::optimize_pairwise(bool decrease_mu, int num_iter,
 	double par = 4.0f;
 
 	// make a float copy of v2.
+	//global_all_scale = 1;
+
+	//Eigen::MatrixXd pcj_copy = v_2 * global_all_scale;
 	Eigen::MatrixXd pcj_copy = v_2;
 
 	Eigen::Matrix4d trans;
@@ -478,6 +493,8 @@ double FastGlobalRegistration::optimize_pairwise(bool decrease_mu, int num_iter,
 
 	for (int itr = 0; itr < num_iter; itr++)
 	{
+		//global_iter = itr;
+		//printf("global_iter %d\n", global_iter);
 		// graduated non-convexity.
 		if (decrease_mu)
 		{
@@ -494,9 +511,12 @@ double FastGlobalRegistration::optimize_pairwise(bool decrease_mu, int num_iter,
 		// transform point clouds
 		pcj_copy = (pcj_copy.rowwise().homogeneous() * delta.transpose()).leftCols(3).eval();
 	}
+	//trans_mat = trans;
 	trans_mat = trans;
+	trans_mat(3, 3) = 1;
 	return par;
 }
+
 
 Eigen::Matrix4f FastGlobalRegistration::update_fgr(const Eigen::MatrixXd &v_1, const Eigen::MatrixXf &v_2,
 	const std::vector<std::pair<int, int>> &corres, const double mu)
@@ -557,6 +577,7 @@ Eigen::Matrix4f FastGlobalRegistration::update_fgr(const Eigen::MatrixXd &v_1, c
 		r2 += (mu * (1.0 - sqrt(s[c2])) * (1.0 - sqrt(s[c2])));
 	}
 	std::cout << "energy: " << e << std::endl;
+
 	Eigen::MatrixXd result(nvariable, 1);
 	result = -JTJ.llt().solve(JTr);
 
@@ -661,6 +682,8 @@ Eigen::Matrix4d FastGlobalRegistration::update_ssicp(const Eigen::MatrixXd &v_1,
 
 #ifdef SHOW_DEBUG_INFO
 	std::cout << "energy: " << e << std::endl;
+	std:fstream file("D:\\reg\\reg.txt", ios::app);
+	file << "energy: " << e << std::endl;
 #endif
 #ifdef USE_RANSAC
 	Eigen::MatrixXi corres_mat(corres.size(), 2);
@@ -712,10 +735,14 @@ Eigen::Matrix4d FastGlobalRegistration::update_ssicp(const Eigen::MatrixXd &v_1,
 	double num = (Z.array() * (X * R.transpose()).array()).sum();
 	double den = X.squaredNorm();
 	double s = num / den;
+
+	printf("estimate scale: %f",s);
+
 	if (s < 0)
 	{
 		s = 1;
 	}
+
 	Eigen::RowVector3d T = sum_l_p / sum_l - s * sum_l_q / sum_l * (R.transpose());
 
 	Eigen::Matrix4d trans;
@@ -738,7 +765,6 @@ double FastGlobalRegistration::optimize_global(bool decrease_mu, int num_iter, s
 	for (const auto& ele : v_map)
 	{
 		trans_mat_map[ele.first] = Eigen::Matrix4d::Identity();
-		scales[ele.first] = 1;
 	}
 
 	for (int itr = 0; itr < num_iter; itr++)

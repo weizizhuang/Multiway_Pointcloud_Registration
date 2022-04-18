@@ -38,7 +38,7 @@ else()
 	message(STATUS "NOTICE: Eigen library is not found.") 
 endif()
 
-set(LIBIGL_ROOT_DIR "$ENV{LIBIGL_ROOT}")
+set(LIBIGL_ROOT_DIR "C:/Users/admin/Desktop/libigl-master")
 if(NOT LIBIGL_ROOT_DIR)
 	message(FATAL_ERROR "Please point the environment variable LIBIGL_ROOT to the include directory of your libigl installation.")
 else()

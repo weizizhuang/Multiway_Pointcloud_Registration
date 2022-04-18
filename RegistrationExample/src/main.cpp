@@ -336,11 +336,14 @@ void main()
 
 	namespace fs = boost::filesystem;
 
+
+	/*
 	std::string path = "E:\\Projects\\FastGlobalRegistration\\dataset";
 	std::string output_path = "E:\\Documents\\Chinagraph2018\\new_data\\fgr_dataset_performance";
 	int step_num = 20;
 	double scaling_step = std::pow(9.0, 1.0/step_num);
-	for (auto & p : fs::directory_iterator(path))
+	for (auto & p : fs::directory_
+	ator(path))
 	{
 		//std::cout << p << std::endl;
 		if (!fs::is_directory(p.path()))
@@ -378,9 +381,16 @@ void main()
 		//DataIO::change_config_attribute("fgr_test.xml", "parameters", "downsampling_num", std::to_string(i * 10000));
 		//RegPipeline::MultiwayPointCloudRegistrationUsingScaleFGR("fgr_test.xml");
 	}
-	
 
-	//RegPipeline::PointCloudRegistrationUsingScaleFGR("fgr_test.xml");
+	*/
+
+
+
+
+	RegPipeline::PointCloudRegistrationUsingScaleMultiway("D:\\UrbanReg\\Scripts\\fgr_config.xml");
+
+
+
 
 	//convert_batch_files_to_vis_data();
 	//system("pause");

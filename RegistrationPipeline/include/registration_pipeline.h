@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 
+
 namespace RegPipeline
 {
 	// Relocate point cloud using GPS data
@@ -27,11 +28,18 @@ namespace RegPipeline
 
 	// Point cloud registration using our modified Scale-FGR
 	// config_filename: input filename of config xml file
+
+
 	REGPIPELINE_PUBLIC void PointCloudRegistrationUsingScaleFGR(const std::string& config_filename);
+
+	REGPIPELINE_PUBLIC void PointCloudRegistrationUsingScaleMultiway(const std::string& config_filename);
+
 
 	// Multi-way point cloud registration using our modified Scale-FGR	
 	// config_filename: input filename of config xml file
 	REGPIPELINE_PUBLIC void MultiwayPointCloudRegistrationUsingScaleFGR(const std::string& config_filename);
+
+
 }
 
 #endif

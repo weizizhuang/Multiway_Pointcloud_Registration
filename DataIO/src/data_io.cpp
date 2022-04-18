@@ -8,6 +8,7 @@
 #include "rapidxml_print.hpp"
 #include "rply.h"
 #include <json/json.h>
+#include <memory>
 
 int DataIO::read_ply(const std::string& filename, Eigen::MatrixXd& v, Eigen::MatrixXd& vc, Eigen::MatrixXd& vn)
 {

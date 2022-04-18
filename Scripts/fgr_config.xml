@@ -1,6 +1,14 @@
 <point_cloud>
-	<filename>out_e44_vn_trimmed.ply</filename>
-	<filename>out_e55_vn_trimmed.ply</filename>
+	<filename>C:\\Users\\admin\\Desktop\\bunny\\data\\bun000.ply</filename>
+	<filename>C:\\Users\\admin\\Desktop\\bunny\\data\\bun045.ply</filename>
+	<filename>C:\\Users\\admin\\Desktop\\bunny\\data\\bun090.ply</filename>
+	<filename>C:\\Users\\admin\\Desktop\\bunny\\data\\bun180.ply</filename>
+	<filename>C:\\Users\\admin\\Desktop\\bunny\\data\\bun270.ply</filename>
+	<filename>C:\\Users\\admin\\Desktop\\bunny\\data\\bun315.ply</filename>
+	<filename>C:\\Users\\admin\\Desktop\\bunny\\data\\chin.ply</filename>
+	<filename>C:\\Users\\admin\\Desktop\\bunny\\data\\ear_back.ply</filename>
+	<filename>C:\\Users\\admin\\Desktop\\bunny\\data\\top2.ply</filename>
+	<filename>C:\\Users\\admin\\Desktop\\bunny\\data\\top3.ply</filename>
 </point_cloud>
 <feature feature_type="shot">
 	<filename></filename>
@@ -9,4 +17,5 @@
 <correspondences>
 	<filename></filename>
 </correspondences>
-<parameters downsampling_num="100000" pca_component_num="30"/>
+<parameters downsampling_num="50000" pca_component_num="30" data_scaling_factor="1"/>
+<output_folder name="C:\\Users\\admin\\Desktop\\bunny"/>
